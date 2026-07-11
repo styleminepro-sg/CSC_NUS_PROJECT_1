@@ -364,39 +364,32 @@ if (deltaV >= 9400) {
       const fuelBox = document.getElementById('fuelBox');
       const fuelContent = document.getElementById('fuelContent');
       fuelBox.style.display = 'block';
-      
-      // Determine fuel mixture based on mission parameters
-      let mixtureName, oxygenRatio, hydrogenRatio, efficiency, note;
-      
-      if (deltaV > 6000 && maxAlt > 300) {
-        // High performance mission - LOX/LH2 (Liquid Oxygen/Liquid Hydrogen)
-        mixtureName = 'LOX/LH2 (High Performance)';
-        oxygenRatio = 77;
-        hydrogenRatio = 23;
-        efficiency = '450 sec';
-        note = 'Best for extreme altitude missions. Requires cryogenic cooling. Maximum efficiency.';
-      } else if (deltaV > 4500 && maxAlt > 150) {
-        // Medium-High mission - RP-1/LOX
-        mixtureName = 'RP-1/LOX (Medium-High)';
-        oxygenRatio = 65;
-        hydrogenRatio = 35;
-        efficiency = '380 sec';
-        note = 'Balanced performance. Good for standard orbital missions. Easier to handle than cryogenic.';
-      } else if (deltaV > 3000 && maxAlt > 50) {
-        // Medium mission - UDMH/N2O4
-        mixtureName = 'UDMH/N2O4 (Medium)';
-        oxygenRatio = 55;
-        hydrogenRatio = 45;
-        efficiency = '310 sec';
-        note = 'Good stability. Storable propellants. Suitable for most missions.';
-      } else {
-        // Low mission - Methane/LOX
-        mixtureName = 'CH4/LOX (Entry-Level)';
-        oxygenRatio = 60;
-        hydrogenRatio = 40;
-        efficiency = '340 sec';
-        note = 'Economical option. Good performance for basic missions. Moderate handling.';
-      }
+let mixtureName, ratio, efficiency, note;
+
+if (deltaV >= 9400) {
+    mixtureName = "LOX / LH₂";
+    ratio = "5.5 : 1";
+    efficiency = "450 s";
+    note = "Highest performance cryogenic propellant.";
+}
+else if (deltaV >= 5000) {
+    mixtureName = "LOX / CH₄";
+    ratio = "3.6 : 1";
+    efficiency = "360 s";
+    note = "Modern reusable rocket propellant.";
+}
+else if (deltaV >= 3000) {
+    mixtureName = "LOX / RP-1";
+    ratio = "2.7 : 1";
+    efficiency = "330 s";
+    note = "Used by Falcon 9 first stage and Soyuz.";
+}
+else {
+    mixtureName = "N₂O₄ / UDMH";
+    ratio = "2.0 : 1";
+    efficiency = "320 s";
+    note = "Storable propellant for spacecraft.";
+}
       
       let fuelHTML = '<div class="fuel-mixture-item">';
       fuelHTML += '<div class="mixture-label">' + mixtureName + '</div>';
