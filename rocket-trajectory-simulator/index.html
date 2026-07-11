@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rocket Trajectory Simulator</title>
+    
+    <!--
+    ======================================================================
+    PROJECT TITLE: Rocket Trajectory Simulator
+    AUTHOR: Undergraduate Engineering Portfolio Project
+    OBJECTIVE: Simulate and visualize 2D rocket launch trajectories using 
+               fundamental principles of orbital mechanics and kinematics.
+    THEORY: Utilizes numerical integration (Euler Method) to step through 
+            time, applying thrust and gravity vectors to update velocity 
+            and position. The Tsiolkovsky Rocket Equation validates total Δv.
+    EQUATIONS USED: 
+      - Tsiolkovsky: Δv = Isp * g₀ * ln(m₀ / mf)
+      - Force: F = (Thrust - Drag) - (Mass * g₀)
+      - Acceleration: a = F / Mass
+      - Velocity: v(t+Δt) = v(t) + a * Δt
+      - Position: s(t+Δt) = s(t) + v * Δt
+    ASSUMPTIONS: 
+      - 2D Cartesian coordinate system (Flat Earth approximation for local flight).
+      - Constant gravitational acceleration (g₀ = 9.80665 m/s²).
+      - Vacuum approximation (neglected aerodynamic drag for simplified baseline).
+    LIMITATIONS: 
+      - Does not model Max-Q (aerodynamic pressure).
+      - Coriolis effect and orbital curvature are neglected.
+    FUTURE IMPROVEMENTS: 
+      - Integrate atmospheric density models (US Standard Atmosphere 1976).
+      - Implement Runge-Kutta 4th order (RK4) integration for higher accuracy.
+      - Multi-stage capability and dynamic mass shedding.
+    REFERENCES: 
+      - Sutton, G. P. "Rocket Propulsion Elements".
+      - Fundamentals of Astrodynamics (Bate, Mueller, White).
+    ======================================================================
+    -->
+    
+    <style>
+        :root {
+            /* Color Palette - Modern Mission Control Theme */
+            --bg-main: #0a0a0f;
+            --bg-panel: #14161f;
+            --border-color: #2a2e3f;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent-blue: #00e5ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff3366;
+            --accent-yellow: #ffd700;
+            --font-ui: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Background Animation Layer */
+        .star-field {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background-image: 
+                radial-gradient(1px 1px at 10% 20%, white 100%, transparent),
+                radial-gradient(1px 1px at 40% 60%, white 100%, transparent),
+                radial-gradient(1.5px 1.5px at 80% 30%, #a4b5d6 100%, transparent),
+                radial-gradient(2px 2px at 90% 80%, #a4b5d6 100%, transparent);
+            background-size: 200px 200px;
+            animation: scrollStars 60s linear infinite;
+            opacity: 0.3;
+        }
+
+        @keyframes scrollStars {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 200px; }
+        }
+
+        /* Header / Branding */
+        header {
+            padding: 15px 25px;
+            background: linear-gradient(180deg, rgba(20,22,31,0.95) 0%, rgba(10,10,15,0.8) 100%);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .logo-area h1 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--accent-blue);
+            text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+        }
+
+        .logo-area p {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+
+        .mission-clock {
+            font-family: var(--font-mono);
+            font-size: 1.8rem;
+            color: var(--accent-green);
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.4);
+            font-weight: bold;
+        }
+
+        /* Main Dashboard Grid */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 320px 1fr 340px;
+            gap: 20px;
+            padding: 20px;
+            flex: 1;
+            height: calc(100vh - 75px);
+        }
+
+        /* Standard Panel Styling */
+        .panel {
+            background: rgba(20, 22, 31, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            overflow-y: auto;
+        }
+
+        .panel-header {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            background: rgba(0,0,0,0.3);
+        }
+
+        .panel-content {
+            padding: 15px;
+        }
+
+        /* Forms & Inputs */
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .input-group label span.unit {
+            color: #64748b;
+        }
+
+        .input-group input {
+            width: 100%;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border-color);
+            color: var(--accent-blue);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+        }
+
+        /* Buttons */
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 25px;
+        }
+
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: var(--font-ui);
+            font-size: 0.85rem;
+        }
+
+        button:active { transform: translateY(1px); }
+
+        .btn-launch {
+            grid-column: span 2;
+            background: rgba(0, 229, 255, 0.1);
+            color: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.1) inset;
+        }
+
+        .btn-launch:hover {
+            background: var(--accent-blue);
+            color: #000;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
+        }
+
+        .btn-pause {
+            background: rgba(255, 215, 0, 0.1);
+            color: var(--accent-yellow);
+            border: 1px solid var(--accent-yellow);
+        }
+        .btn-pause:hover { background: rgba(255, 215, 0, 0.2); }
+
+        .btn-reset {
+            background: rgba(255, 51, 102, 0.1);
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+        }
+        .btn-reset:hover { background: rgba(255, 51, 102, 0.2); }
+
+        /* Central Canvas */
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        
+        #simCanvas {
+            width: 100%;
+            height: 100%;
+            min-height: 400px;
+            background: linear-gradient(0deg, #020617 0%, #000000 100%);
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.8);
+        }
+
+        .overlay-data {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            pointer-events: none;
+        }
+
+        /* Telemetry Grid */
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .data-box {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .data-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .data-value {
+            font-family: var(--font-mono);
+            font-size: 1.25rem;
+            color: var(--text-main);
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .data-unit {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Fuel Indicator */
+        .fuel-gauge {
+            margin-top: 20px;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 15px;
+        }
+        
+        .gauge-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: bold;
+        }
+
+        .progress-bg {
+            height: 10px;
+            background: #1e293b;
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow: hidden;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 100%;
+            background: var(--accent-blue);
+            transition: width 0.1s linear, background-color 0.3s;
+        }
+
+        /* Mission Status Indicator */
+        .status-banner {
+            margin-top: 20px;
+            padding: 12px;
+            text-align: center;
+            font-weight: 800;
+            letter-spacing: 2px;
+            border-radius: 4px;
+            background: rgba(148, 163, 184, 0.1);
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+            text-transform: uppercase;
+            transition: all 0.3s;
+        }
+
+        /* AI Propellant Recommendation */
+        .propellant-rec {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 229, 255, 0.05);
+            border-left: 3px solid var(--accent-blue);
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .propellant-rec h4 {
+            color: var(--accent-blue);
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .propellant-rec p {
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #cbd5e1;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .dashboard { grid-template-columns: 280px 1fr 300px; }
+        }
+        @media (max-width: 992px) {
+            .dashboard { 
+                grid-template-columns: 1fr; 
+                height: auto; 
+                overflow-y: auto; 
+            }
+            body { overflow-y: auto; }
+            .canvas-container { height: 500px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Background Animation Layer -->
+    <div class="star-field"></div>
+
+    <!-- Header / Branding -->
+    <header>
+        <div class="logo-area">
+            <h1>Rocket Trajectory</h1>
+            <p>Orbital Mechanics & Kinematics Simulator</p>
+        </div>
+        <div class="mission-clock" id="clock">T- 00:00:00</div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard">
+        
+        <!-- LEFT PANEL: Flight Parameters -->
+        <aside class="panel">
+            <div class="panel-header">Flight Parameters</div>
+            <div class="panel-content">
+                
+                <div class="input-group">
+                    <label>Wet Mass (m₀) <span class="unit">[kg]</span></label>
+                    <input type="number" id="param-wet-mass" value="50000" step="1000" min="1000">
+                </div>
+                
+                <div class="input-group">
+                    <label>Dry Mass (m_f) <span class="unit">[kg]</span></label>
+                    <input type="number" id="param-dry-mass" value="5000" step="100" min="100">
+                </div>
+                
+                <div class="input-group">
+                    <label>Thrust (F) <span class="unit">[kN]</span></label>
+                    <input type="number" id="param-thrust" value="850" step="10" min="0">
+                </div>
+                
+                <div class="input-group">
+                    <label>Specific Impulse (Isp) <span class="unit">[s]</span></label>
+                    <input type="number" id="param-isp" value="320" step="1" min="100" max="1000">
+                </div>
+                
+                <div class="input-group">
+                    <label>Launch Angle <span class="unit">[deg]</span></label>
+                    <input type="number" id="param-angle" value="85" step="1" min="1" max="90">
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn-launch" id="btn-launch" onclick="toggleLaunch()">Initiate Launch</button>
+                    <button class="btn-pause" id="btn-pause" onclick="togglePause()">Pause</button>
+                    <button class="btn-reset" id="btn-reset" onclick="resetSim()">Reset</button>
+                </div>
+
+                <!-- AI Propellant Recommendation -->
+                <div class="propellant-rec" id="propellant-rec">
+                    <h4>Propellant Analysis</h4>
+                    <p id="propellant-text">Awaiting calculation based on requested Specific Impulse...</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- CENTER PANEL: Visualization -->
+        <section class="panel canvas-container">
+            <div class="panel-header" style="background: rgba(0,0,0,0.6); border:none; position:absolute; width:100%; z-index:5;">
+                Trajectory Visualization
+            </div>
+            
+            <canvas id="simCanvas"></canvas>
+            
+            <div class="status-banner" id="mission-status" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 80%; z-index: 5;">
+                PRE-FLIGHT STANDBY
+            </div>
+        </section>
+
+        <!-- RIGHT PANEL: Live Telemetry -->
+        <aside class="panel">
+            <div class="panel-header">Live Telemetry</div>
+            <div class="panel-content">
+                
+                <div class="telemetry-grid">
+                    <div class="data-box">
+                        <div class="data-label">Altitude (Y)</div>
+                        <div class="data-value" id="tel-alt">0.00 <span class="data-unit">km</span></div>
+                    </div>
+                    <div class="data-box">
+                        <div class="data-label">Downrange (X)</div>
+                        <div class="data-value" id="tel-dist">0.00 <span class="data-unit">km</span></div>
+                    </div>
+                    <div class="data-box">
+                        <div class="data-label">Velocity (v)</div>
+                        <div class="data-value" id="tel-vel">0.00 <span class="data-unit">m/s</span></div>
+                    </div>
+                    <div class="data-box">
+                        <div class="data-label">Acceleration (a)</div>
+                        <div class="data-value" id="tel-accel">0.00 <span class="data-unit">G</span></div>
+                    </div>
+                    <div class="data-box">
+                        <div class="data-label">Max Apogee</div>
+                        <div class="data-value" id="tel-apogee">0.00 <span class="data-unit">km</span></div>
+                    </div>
+                    <div class="data-box">
+                        <div class="data-label">Ideal Δv Total</div>
+                        <div class="data-value" id="tel-deltav">0.00 <span class="data-unit">m/s</span></div>
+                    </div>
+                </div>
+
+                <div class="fuel-gauge">
+                    <div class="gauge-header">
+                        <span>Propellant Remaining</span>
+                        <span id="fuel-val">100.0%</span>
+                    </div>
+                    <div class="progress-bg">
+                        <div class="progress-fill" id="fuel-bar"></div>
+                    </div>
+                </div>
+                
+            </div>
+        </aside>
+
+    </main>
+
+    <script>
+        // ======================================================
+        // ROCKET PHYSICS ENGINE & STATE MANAGEMENT
+        // ======================================================
+
+        // Fundamental Constants
+        const G0 = 9.80665; // Standard gravity [m/s^2]
+
+        // System State
+        let state = {
+            isRunning: false,
+            isPaused: false,
+            time: 0,           // Mission time [s]
+            dt: 0.05,          // Integration time step [s] (Euler Method)
+            
+            // Mass Properties
+            currentMass: 0,    // [kg]
+            dryMass: 0,        // [kg]
+            propMassInit: 0,   // [kg]
+            
+            // Kinematic Vectors (2D)
+            posX: 0,           // Downrange [m]
+            posY: 0,           // Altitude [m]
+            velX: 0,           // Velocity X [m/s]
+            velY: 0,           // Velocity Y [m/s]
+            accel: 0,          // Total scalar acceleration [m/s^2]
+            
+            // Propulsion
+            thrust: 0,         // [N]
+            isp: 0,            // [s]
+            massFlowRate: 0,   // [kg/s]
+            pitchAngle: 0,     // [rad] Launch angle from horizontal
+            
+            // Metrics
+            maxAltitude: 0,    // [m]
+            totalDeltaV: 0,    // [m/s] Calculated via Tsiolkovsky Equation
+            status: "PRE-FLIGHT STANDBY"
+        };
+
+        // Trajectory History Array for Canvas Rendering
+        // Stores {x, y, isBurn} objects
+        let trajectoryData = [];
+        let animationFrameId = null;
+
+        // ======================================================
+        // UI & DOM ELEMENT BINDING
+        // ======================================================
+        
+        const UI = {
+            // Context
+            canvas: document.getElementById('simCanvas'),
+            ctx: null, // Initialized in setup()
+            
+            // Inputs
+            wetMass: document.getElementById('param-wet-mass'),
+            dryMass: document.getElementById('param-dry-mass'),
+            thrust: document.getElementById('param-thrust'),
+            isp: document.getElementById('param-isp'),
+            angle: document.getElementById('param-angle'),
+            
+            // Telemetry Outputs
+            telAlt: document.getElementById('tel-alt'),
+            telDist: document.getElementById('tel-dist'),
+            telVel: document.getElementById('tel-vel'),
+            telAccel: document.getElementById('tel-accel'),
+            telApogee: document.getElementById('tel-apogee'),
+            telDeltaV: document.getElementById('tel-deltav'),
+            
+            // Visual Gauges
+            fuelBar: document.getElementById('fuel-bar'),
+            fuelVal: document.getElementById('fuel-val'),
+            clock: document.getElementById('clock'),
+            statusBanner: document.getElementById('mission-status'),
+            
+            // Intelligence / Recommendations
+            propText: document.getElementById('propellant-text'),
+            
+            // Controls
+            btnLaunch: document.getElementById('btn-launch')
+        };
+        // ======================================================
+        // INITIALIZATION & DYNAMIC ANALYSIS
+        // ======================================================
+        
+        function initApp() {
+            UI.ctx = UI.canvas.getContext('2d');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Bind listeners to inputs for live feedback before launch
+            const inputs = [UI.wetMass, UI.dryMass, UI.thrust, UI.isp, UI.angle];
+            inputs.forEach(input => input.addEventListener('input', () => {
+                if (!state.isRunning) {
+                    analyzePropellant();
+                    calculateIdealDeltaV();
+                }
+            }));
+            
+            analyzePropellant();
+            calculateIdealDeltaV();
+            drawCanvas(); // Initial render of grid
+        }
+
+        function resizeCanvas() {
+            // Adjust canvas internal resolution to match container size for crisp rendering
+            const container = UI.canvas.parentElement;
+            UI.canvas.width = container.clientWidth;
+            UI.canvas.height = container.clientHeight || 500;
+            if (!state.isRunning) drawCanvas();
+        }
+
+        function analyzePropellant() {
+            const isp = parseFloat(UI.isp.value);
+            let mixture, explanation;
+
+            // Basic AI/Rule-based propellant categorization based on Isp ranges
+            if (isp >= 430) {
+                mixture = "LOX / LH₂ (Cryogenic)";
+                explanation = "High efficiency, highly theoretical. Standard for upper stages (e.g., Space Shuttle Main Engine). Requires significant cryogenic insulation.";
+            } else if (isp >= 340) {
+                mixture = "LOX / CH₄ (Methalox)";
+                explanation = "Modern reusable standard. Excellent balance of density, efficiency, and coking resistance. Used in next-gen heavy lifters.";
+            } else if (isp >= 280) {
+                mixture = "LOX / RP-1 (Kerolox)";
+                explanation = "Dense, high-thrust mixture. Standard for first-stage boosters (e.g., Saturn V F-1, Falcon 9 Merlin).";
+            } else {
+                mixture = "N₂O₄ / UDMH (Hypergolic)";
+                explanation = "Storable and reliable. Ignites on contact. Primarily used for orbital maneuvering systems and heritage ICBMs.";
+            }
+
+            UI.propText.innerHTML = `<strong>Suggested Formulation:</strong> ${mixture}<br><br>${explanation}`;
+        }
+
+        function calculateIdealDeltaV() {
+            const m0 = parseFloat(UI.wetMass.value);
+            const mf = parseFloat(UI.dryMass.value);
+            const isp = parseFloat(UI.isp.value);
+            
+            if (m0 > mf && m0 > 0 && mf > 0) {
+                // Tsiolkovsky Rocket Equation: Δv = Isp * g0 * ln(m0 / mf)
+                const deltaV = isp * G0 * Math.log(m0 / mf);
+                UI.telDeltaV.innerHTML = `${(deltaV).toFixed(0)} <span class="data-unit">m/s</span>`;
+            } else {
+                UI.telDeltaV.innerHTML = `ERR <span class="data-unit">mass input</span>`;
+            }
+        }
+
+        // ======================================================
+        // PHYSICS ENGINE & INTEGRATION
+        // ======================================================
+
+        function toggleLaunch() {
+            if (state.isRunning) return; // Prevent multiple launches
+
+            // Parse Input Parameters
+            state.currentMass = parseFloat(UI.wetMass.value);
+            state.dryMass = parseFloat(UI.dryMass.value);
+            state.thrust = parseFloat(UI.thrust.value) * 1000; // Convert kN to N
+            state.isp = parseFloat(UI.isp.value);
+            
+            // Launch Angle to Radians
+            const angleDeg = parseFloat(UI.angle.value);
+            state.pitchAngle = angleDeg * (Math.PI / 180);
+            
+            // Mass Flow Rate Calculation: m_dot = Thrust / (Isp * g0)
+            state.massFlowRate = state.thrust / (state.isp * G0);
+            state.propMassInit = state.currentMass - state.dryMass;
+
+            // Reset State Variables
+            state.time = 0;
+            state.posX = 0;
+            state.posY = 0;
+            state.velX = 0;
+            state.velY = 0;
+            state.accel = 0;
+            state.maxAltitude = 0;
+            state.isPaused = false;
+            state.isRunning = true;
+            trajectoryData = [];
+
+            // Update UI
+            updateStatus("LIFTOFF - THRUSTING", "#00e5ff");
+            UI.btnLaunch.style.opacity = 0.5;
+            UI.btnLaunch.style.cursor = 'not-allowed';
+
+            // Start Simulation Loop
+            lastTimestamp = performance.now();
+            animationFrameId = requestAnimationFrame(simulationLoop);
+        }
+
+        function togglePause() {
+            if (!state.isRunning) return;
+            state.isPaused = !state.isPaused;
+            updateStatus(state.isPaused ? "SIMULATION PAUSED" : (state.currentMass > state.dryMass ? "THRUSTING" : "COASTING"));
+            UI.btnPause.innerText = state.isPaused ? "Resume" : "Pause";
+        }
+
+        function resetSim() {
+            cancelAnimationFrame(animationFrameId);
+            state.isRunning = false;
+            state.isPaused = false;
+            trajectoryData = [];
+            
+            updateStatus("PRE-FLIGHT STANDBY", "#94a3b8");
+            UI.btnLaunch.style.opacity = 1;
+            UI.btnLaunch.style.cursor = 'pointer';
+            UI.btnPause.innerText = "Pause";
+            UI.clock.innerText = "T- 00:00:00";
+            
+            // Reset gauges
+            UI.fuelBar.style.width = '100%';
+            UI.fuelVal.innerText = '100.0%';
+            UI.fuelBar.style.backgroundColor = 'var(--accent-blue)';
+            
+            // Reset Telemetry display
+            UI.telAlt.innerHTML = `0.00 <span class="data-unit">km</span>`;
+            UI.telDist.innerHTML = `0.00 <span class="data-unit">km</span>`;
+            UI.telVel.innerHTML = `0.00 <span class="data-unit">m/s</span>`;
+            UI.telAccel.innerHTML = `0.00 <span class="data-unit">G</span>`;
+            UI.telApogee.innerHTML = `0.00 <span class="data-unit">km</span>`;
+            
+            drawCanvas();
+        }
+
+        function updateStatus(message, color = "#e2e8f0") {
+            UI.statusBanner.innerText = message;
+            UI.statusBanner.style.color = color;
+            UI.statusBanner.style.borderColor = color;
+        }
+
+        // ======================================================
+        // MAIN SIMULATION LOOP (EULER METHOD)
+        // ======================================================
+        
+        let lastTimestamp = 0;
+        
+        function simulationLoop(timestamp) {
+            if (!state.isRunning) return;
+            
+            // Allow real-time pausing without breaking time calculation
+            if (!state.isPaused) {
+                // Fixed time-step integration for consistent physics
+                // Real-time delta is not used to prevent lag-induced physics errors
+                const physicsStepsPerFrame = 5; // Run multiple micro-steps for accuracy
+                const subDt = state.dt / physicsStepsPerFrame;
+
+                for(let i=0; i<physicsStepsPerFrame; i++) {
+                    performPhysicsStep(subDt);
+                    if(!state.isRunning) break; // Impact condition met mid-frame
+                }
+                
+                updateTelemetryUI();
+                drawCanvas();
+            }
+            
+            if (state.isRunning) {
+                animationFrameId = requestAnimationFrame(simulationLoop);
+            }
+        }
+
+        function performPhysicsStep(dt) {
+            let currentThrust = 0;
+            let isBurning = false;
+
+            // 1. Mass & Engine State Update
+            if (state.currentMass > state.dryMass) {
+                currentThrust = state.thrust;
+                isBurning = true;
+                state.currentMass -= state.massFlowRate * dt;
+                
+                // MECO (Main Engine Cut Off) check
+                if (state.currentMass <= state.dryMass) {
+                    state.currentMass = state.dryMass;
+                    updateStatus("MECO - COASTING PHASE", "#ffd700");
+                }
+            }
+
+            // 2. Resolve Force Vectors (Assumes simplified 2D flat-earth logic)
+            let pitch = state.pitchAngle;
+            
+            // Gravity turn approximation during coast: align with velocity vector
+            if (!isBurning && (Math.abs(state.velX) > 0.1 || Math.abs(state.velY) > 0.1)) {
+                 pitch = Math.atan2(state.velY, state.velX); 
+            }
+
+            const thrustX = currentThrust * Math.cos(pitch);
+            const thrustY = currentThrust * Math.sin(pitch);
+            const weight = state.currentMass * G0; // Force of gravity [N]
+
+            // 3. Accelerations (a = ΣF / m)
+            const accelX = thrustX / state.currentMass;
+            const accelY = (thrustY - weight) / state.currentMass;
+
+            state.accel = Math.sqrt(accelX*accelX + accelY*accelY) / G0; // G-force
+
+            // 4. Velocities (v_new = v_old + a * dt)
+            state.velX += accelX * dt;
+            state.velY += accelY * dt;
+
+            // 5. Positions (s_new = s_old + v * dt)
+            state.posX += state.velX * dt;
+            state.posY += state.velY * dt;
+
+            // 6. Time and Metrics Tracking
+            state.time += dt;
+            if (state.posY > state.maxAltitude) state.maxAltitude = state.posY;
+
+            // Throttle data pushing to prevent memory overflow (record every ~0.25s)
+            if (Math.floor(state.time * 20) % 5 === 0) {
+                trajectoryData.push({
+                    x: state.posX,
+                    y: state.posY,
+                    isBurn: isBurning
+                });
+            }
+
+            // 7. Termination Conditions
+            if (state.posY <= 0 && state.time > 1.0) {
+                state.posY = 0;
+                state.isRunning = false;
+                updateStatus("TOUCHDOWN / IMPACT", "#ff3366");
+            } else if (state.posY > 5000000) { 
+                // Escape trajectory safety cutout (5,000 km)
+                state.isRunning = false;
+                updateStatus("ESCAPED LOCAL SYSTEM", "#00ff88");
+            }
+        }
+
+        // ======================================================
+        // TELEMETRY & RENDER UPDATES
+        // ======================================================
+
+        function updateTelemetryUI() {
+            // Time Formatting
+            const m = Math.floor(state.time / 60);
+            const s = Math.floor(state.time % 60);
+            const ms = Math.floor((state.time % 1) * 100);
+            UI.clock.innerText = `T+ ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${ms.toString().padStart(2, '0')}`;
+
+            // Telemetry Outputs (Converted to km and m/s where appropriate)
+            UI.telAlt.innerHTML = `${(state.posY / 1000).toFixed(2)} <span class="data-unit">km</span>`;
+            UI.telDist.innerHTML = `${(state.posX / 1000).toFixed(2)} <span class="data-unit">km</span>`;
+            
+            const totalVel = Math.sqrt(state.velX*state.velX + state.velY*state.velY);
+            UI.telVel.innerHTML = `${totalVel.toFixed(1)} <span class="data-unit">m/s</span>`;
+            
+            UI.telAccel.innerHTML = `${state.accel.toFixed(2)} <span class="data-unit">G</span>`;
+            UI.telApogee.innerHTML = `${(state.maxAltitude / 1000).toFixed(2)} <span class="data-unit">km</span>`;
+
+            // Fuel Gauge Calculation
+            const currentPropMass = state.currentMass - state.dryMass;
+            const fuelPercent = Math.max(0, (currentPropMass / state.propMassInit) * 100);
+            UI.fuelVal.innerText = `${fuelPercent.toFixed(1)}%`;
+            UI.fuelBar.style.width = `${fuelPercent}%`;
+            
+            if (fuelPercent < 20 && fuelPercent > 0) {
+                UI.fuelBar.style.backgroundColor = 'var(--accent-red)';
+            }
+        }
+
+        function drawCanvas() {
+            if (!UI.ctx) return;
+            const ctx = UI.ctx;
+            const w = UI.canvas.width;
+            const h = UI.canvas.height;
+            
+            ctx.clearRect(0, 0, w, h);
+            
+            // Dynamic Scaling based on max boundaries
+            const padding = 50;
+            let maxX = Math.max(10000, state.posX * 1.2); // min 10km scale
+            let maxY = Math.max(10000, state.maxAltitude * 1.2); 
+            
+            // Mapping functions from physical coordinates [m] to canvas pixels
+            const mapX = (x) => padding + (x / maxX) * (w - padding * 2);
+            const mapY = (y) => (h - padding) - (y / maxY) * (h - padding * 2);
+
+            // 1. Draw Grid System
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let i=0; i<=5; i++) {
+                // Verticals
+                let px = mapX(maxX * (i/5));
+                ctx.moveTo(px, padding);
+                ctx.lineTo(px, h - padding);
+                // Horizontals
+                let py = mapY(maxY * (i/5));
+                ctx.moveTo(padding, py);
+                ctx.lineTo(w - padding, py);
+            }
+            ctx.stroke();
+
+            // 2. Draw Axes
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(padding, h - padding);
+            ctx.lineTo(w - padding, h - padding);
+            ctx.stroke();
+
+            // Axis Labels
+            ctx.fillStyle = 'var(--text-muted)';
+            ctx.font = '10px var(--font-mono)';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Downrange: ${(maxX/1000).toFixed(0)} km`, w/2, h - 20);
+            
+            ctx.save();
+            ctx.translate(20, h/2);
+            ctx.rotate(-Math.PI/2);
+            ctx.fillText(`Altitude: ${(maxY/1000).toFixed(0)} km`, 0, 0);
+            ctx.restore();
+
+            // 3. Draw Trajectory History
+            if (trajectoryData.length > 1) {
+                for (let i = 1; i < trajectoryData.length; i++) {
+                    const p1 = trajectoryData[i-1];
+                    const p2 = trajectoryData[i];
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(mapX(p1.x), mapY(p1.y));
+                    ctx.lineTo(mapX(p2.x), mapY(p2.y));
+                    
+                    // Color code the burn phase vs coast phase
+                    ctx.strokeStyle = p2.isBurn ? 'var(--accent-blue)' : 'rgba(255, 215, 0, 0.8)';
+                    ctx.lineWidth = p2.isBurn ? 3 : 2;
+                    ctx.shadowBlur = p2.isBurn ? 10 : 0;
+                    ctx.shadowColor = 'var(--accent-blue)';
+                    
+                    ctx.stroke();
+                }
+                ctx.shadowBlur = 0; // reset
+            }
+
+            // 4. Draw Current Rocket Position (Marker)
+            if (state.isRunning || state.time > 0) {
+                const rx = mapX(state.posX);
+                const ry = mapY(state.posY);
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(rx, ry, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Direction Vector Line
+                if (Math.abs(state.velX) > 0 || Math.abs(state.velY) > 0) {
+                    const vMag = Math.sqrt(state.velX*state.velX + state.velY*state.velY);
+                    const normVx = state.velX / vMag;
+                    const normVy = state.velY / vMag;
+                    
+                    ctx.strokeStyle = 'var(--accent-green)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(rx, ry);
+                    ctx.lineTo(rx + normVx * 20, ry - normVy * 20); // Note inverted Y for canvas
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Initialize Application on Load
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>
