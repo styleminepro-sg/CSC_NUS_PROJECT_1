@@ -78,6 +78,9 @@ class JetEngineSimulator {
      */
     async initialize() {
         try {
+           
+            ErrorHandler.setup();
+           
             this.updateProgress(5, 'Initializing renderer...');
             await this.initializeRenderer();
             
@@ -424,6 +427,12 @@ class JetEngineSimulator {
      */
     animate() {
         requestAnimationFrame(this.animate);
+       if (MobileSupport.isMobile()) {
+     MobileSupport.adaptForMobile();
+     PerformanceOptimization.optimizeParticles(this);
+     PerformanceOptimization.optimizeTextures(this);
+       }
+       PerformanceOptimization.monitorPerformance(this);
         
         // === CALCULATE DELTA TIME ===
         const now = Date.now();
